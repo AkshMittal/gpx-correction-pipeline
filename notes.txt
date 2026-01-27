@@ -1,0 +1,22 @@
+INGESTION MODULE:
+    - keeping raw data, no inspection or mutating of data in this module 
+    - data categorized into essential and non essential for mental module
+        - coords are essential and the point is just filtered out if invalid format or missing coords
+        - elevation and timestamps are pushed null if invalid format or missing
+        - extensions are saved as whole unparsed DOM objects so that they can be used in future
+
+
+
+
+
+
+
+
+
+==============================================================================================================================
+TIMESTAMP AUDIT MODULE:
+    - currently the filtering is through 1 to 1 comparison only- meaning that blocks of backward tracking are not determinable yet, instead single point comparison are only possible
+      this was done because considering otherwise will mean - for example there is a timestamp sequence of 90 70 80 - the 90 70 comparison flags 70 as backtrack which is good but then if we compare 80 to 90 to determine the full backtracked block that cements that we are assuming 90 is actually the correct timeline.
+      just to make sure we are not assuming here, ive kept this to 1 to 1 flagging rn so real data can be studied for cases of backtracking to see what does actual patter look like before cementing flagging logic. 
+
+    - other than that this module is rn basically a data logger curretly that logs all invariants in 1 to 1 comparison, equal timestamps, backtracks, unparsable timestamps 

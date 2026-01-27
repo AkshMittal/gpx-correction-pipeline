@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPX Correction Pipeline - Ingestion Module</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+        }
+        .file-input-section {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        input[type="file"] {
+            margin: 10px 0;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        #output {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 4px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        .info {
+            color: #666;
+            font-size: 14px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GPX Correction Pipeline</h1>
+        <p class="info">Upload a GPX file to parse track points, waypoints, and route points.</p>
+        
+        <div class="file-input-section">
+            <label for="gpxFile">Select GPX File:</label>
+            <input type="file" id="gpxFile" accept=".gpx" />
+            <button onclick="loadAndParseGPX()">Parse GPX File</button>
+        </div>
+        
+        <div id="output"></div>
+    </div>
+
+    <script src="js/gpx-ingestion-module.js"></script>
+    <script src="js/timestamp-audit.js"></script>
+    <script>
+        // Browser-specific test function
+        async function loadAndParseGPX() {
+            const fileInput = document.getElementById('gpxFile');
+            const output = document.getElementById('output');
+            
+            if (!fileInput.files || fileInput.files.length === 0) {
+                output.textContent = 'Please select a GPX file first.';
+                return;
+            }
+            
+            const file = fileInput.files[0];
+            output.textContent = 'Loading and parsing GPX file...\n';
+            
+            try {
+                // Use the parseGPXFile function from the module
+                const result = await parseGPXFile(file);
+                const points = result.points;
+                const stats = result.stats;
+                
+                // Log the entire points array
+                console.log('Parsed GPX points:', points);
+                
+                // Log statistics
+                console.log('Total points found in GPX:', stats.totalPointsFound);
+                console.log('Points discarded:', stats.pointsDiscarded);
+                console.log('Remaining points:', stats.remainingPoints);
+                
+                // Run timestamp audit
+                const auditMetadata = auditTimestamps(points);
+                
+                // Update output
+                output.textContent = `GPX file parsed successfully.\n\nStatistics:\n- Total points found: ${stats.totalPointsFound}\n- Points discarded: ${stats.pointsDiscarded}\n- Remaining points: ${stats.remainingPoints}\n\nCheck console for parsed points array and timestamp audit results.`;
+                
+            } catch (error) {
+                output.textContent = 'Error: ' + error.message;
+                console.error('GPX parsing error:', error);
+            }
+        }
+        
+        // Make parseGPX and auditTimestamps available globally for console usage
+        window.parseGPX = parseGPX;
+        window.parseGPXFile = parseGPXFile;
+        window.auditTimestamps = auditTimestamps;
+        
+        console.log('GPX Ingestion Module loaded. Use parseGPX(gpxString) or parseGPXFile(file) in console.');
+        console.log('Timestamp Audit Module loaded. Use auditTimestamps(points) in console.');
+    </script>
+</body>
+</html>
