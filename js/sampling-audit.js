@@ -35,6 +35,10 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
  * @returns {Object} Object containing time delta and distance delta statistics
  */
 function auditSampling(points, gpxFilename) {
+  // Global context logging
+  console.log('=== Sampling Audit - Global Context ===');
+  console.log('Total points received:', points.length);
+  
   const timeDeltasMs = [];
   const distanceDeltasM = [];
   let previousTimestampMs = null;
@@ -54,6 +58,19 @@ function auditSampling(points, gpxFilename) {
     }
   }
   
+  console.log('Has valid timestamps:', hasValidTimestamps);
+  console.log('========================================');
+  
+  // Time delta audit counters
+  let timestampedPointsCount = 0;
+  let consecutiveTimestampPairsCount = 0;
+  let positiveTimeDeltasCollected = 0;
+  let rejectedTimestampPairsDeltaLeqZero = 0;
+  
+  // Distance delta audit counters (geometry-only mode)
+  let consecutivePointPairsConsidered = 0;
+  let rejectedDistanceInvalidOrZero = 0;
+  
   // Iterate through all points in order
   // Note: All points are assumed to have valid coordinates (validated during ingestion)
   for (let i = 0; i < points.length; i++) {
@@ -71,11 +88,15 @@ function auditSampling(points, gpxFilename) {
     
     // Compute time delta if we have valid timestamps
     if (hasValidTimestamp) {
+      timestampedPointsCount++;
+      
       if (previousTimestampMs !== null) {
+        consecutiveTimestampPairsCount++;
         const delta = currentTimestampMs - previousTimestampMs;
         
         // Collect only positive deltas (delta > 0)
         if (delta > 0) {
+          positiveTimeDeltasCollected++;
           timeDeltasMs.push(delta);
           
           // If timestamps exist and ordering is known, compute distance delta for this pair
@@ -92,12 +113,15 @@ function auditSampling(points, gpxFilename) {
               distanceDeltasM.push(distance);
             }
           }
+        } else {
+          rejectedTimestampPairsDeltaLeqZero++;
         }
       }
       previousTimestampMs = currentTimestampMs;
     } else if (!hasValidTimestamps) {
       // If timestamps are missing entirely, compute distance for all consecutive points
       if (previousPoint !== null) {
+        consecutivePointPairsConsidered++;
         const distance = haversineDistance(
           previousPoint.lat,
           previousPoint.lon,
@@ -108,12 +132,35 @@ function auditSampling(points, gpxFilename) {
         // Ignore invalid, zero, or non-finite distances
         if (isFinite(distance) && distance > 0) {
           distanceDeltasM.push(distance);
+        } else {
+          rejectedDistanceInvalidOrZero++;
         }
       }
     }
     
     // Update previous point (coordinates are already validated during ingestion)
     previousPoint = { lat: point.lat, lon: point.lon };
+  }
+  
+  // Time delta audit summary
+  console.log('=== Time Delta Audit ===');
+  console.log('Timestamped points:', timestampedPointsCount);
+  console.log('Timestamped consecutive pairs:', consecutiveTimestampPairsCount);
+  console.log('Positive deltas collected:', positiveTimeDeltasCollected);
+  console.log('Rejected (delta <= 0):', rejectedTimestampPairsDeltaLeqZero);
+  console.log('========================');
+  
+  // Distance delta audit summary
+  if (hasValidTimestamps) {
+    console.log('=== Distance Delta Audit (time-conditioned) ===');
+    console.log('Distance deltas collected:', distanceDeltasM.length);
+    console.log('===============================================');
+  } else {
+    console.log('=== Distance Delta Audit (geometry-only) ===');
+    console.log('Consecutive point pairs considered:', consecutivePointPairsConsidered);
+    console.log('Distance deltas collected:', distanceDeltasM.length);
+    console.log('Rejected (invalid or zero distance):', rejectedDistanceInvalidOrZero);
+    console.log('============================================');
   }
   
   // Calculate statistics
@@ -166,6 +213,95 @@ function auditSampling(points, gpxFilename) {
   console.log('Total distance deltas collected:', distanceDeltasM.length);
   console.log('================================');
   
+  // Separate pass: Joint time-distance audit artifact
+  // Only generate if GPX contains valid timestamps
+  const timeDistancePairs = [];
+  
+  // Joint audit counters
+  let jointConsecutivePairsInspected = 0;
+  let jointPairsWithBothTimestamps = 0;
+  let jointRejectedMissingTimestamp = 0;
+  let jointRejectedNonPositiveDt = 0;
+  let jointRejectedInvalidOrZeroDistance = 0;
+  let jointValidPairsCollected = 0;
+  
+  if (hasValidTimestamps) {
+    let prevPoint = null;
+    let prevTimestampMs = null;
+    
+    for (let i = 0; i < points.length; i++) {
+      const point = points[i];
+      const timeRaw = point.timeRaw;
+      
+      // Check if current point has valid timestamp
+      let currentTimestampMs = null;
+      if (timeRaw !== null) {
+        currentTimestampMs = Date.parse(timeRaw);
+        if (isNaN(currentTimestampMs)) {
+          currentTimestampMs = null;
+        }
+      }
+      
+      // Count consecutive pairs inspected (when we have a previous point)
+      if (prevPoint !== null) {
+        jointConsecutivePairsInspected++;
+      }
+      
+      // Include pair only if both current and previous points have valid timestamps
+      if (currentTimestampMs !== null && prevTimestampMs !== null && prevPoint !== null) {
+        jointPairsWithBothTimestamps++;
+        
+        // Compute positive time delta in seconds
+        const dtMs = currentTimestampMs - prevTimestampMs;
+        const dtSec = dtMs / 1000;
+        
+        // Compute haversine distance in meters
+        const ddMeters = haversineDistance(
+          prevPoint.lat,
+          prevPoint.lon,
+          point.lat,
+          point.lon
+        );
+        
+        // Include pair only if dtSec > 0 and ddMeters > 0 and finite
+        if (dtSec > 0 && isFinite(ddMeters) && ddMeters > 0) {
+          jointValidPairsCollected++;
+          timeDistancePairs.push({
+            dtSec: dtSec,
+            ddMeters: ddMeters
+          });
+        } else {
+          if (dtSec <= 0) {
+            jointRejectedNonPositiveDt++;
+          }
+          if (!isFinite(ddMeters) || ddMeters <= 0) {
+            jointRejectedInvalidOrZeroDistance++;
+          }
+        }
+      } else if (prevPoint !== null) {
+        // We have a previous point but missing timestamp on current or previous
+        jointRejectedMissingTimestamp++;
+      }
+      
+      // Update previous point and timestamp if current has valid timestamp
+      if (currentTimestampMs !== null) {
+        prevPoint = { lat: point.lat, lon: point.lon };
+        prevTimestampMs = currentTimestampMs;
+      }
+    }
+    
+    // Joint time-distance audit summary
+    console.log('=== Joint Time-Distance Audit ===');
+    console.log('Consecutive pairs inspected:', jointConsecutivePairsInspected);
+    console.log('Pairs with both timestamps:', jointPairsWithBothTimestamps);
+    console.log('Valid joint pairs collected:', jointValidPairsCollected);
+    console.log('Rejected:');
+    console.log('  - Missing timestamp:', jointRejectedMissingTimestamp);
+    console.log('  - Non-positive Δt:', jointRejectedNonPositiveDt);
+    console.log('  - Invalid/zero distance:', jointRejectedInvalidOrZeroDistance);
+    console.log('================================');
+  }
+  
   // Extract base filename (without extension) for download filenames
   const baseFilename = gpxFilename ? gpxFilename.replace(/\.gpx$/i, '') : 'gpx';
   
@@ -202,6 +338,25 @@ function auditSampling(points, gpxFilename) {
   distanceLink.click();
   document.body.removeChild(distanceLink);
   URL.revokeObjectURL(distanceUrl);
+  
+  // Export joint time-distance pairs to JSON file (only if valid timestamps exist)
+  if (hasValidTimestamps) {
+    const timeDistanceExportPayload = {
+      pairs: timeDistancePairs,
+      count: timeDistancePairs.length
+    };
+    
+    const timeDistanceJsonString = JSON.stringify(timeDistanceExportPayload, null, 2);
+    const timeDistanceBlob = new Blob([timeDistanceJsonString], { type: 'application/json' });
+    const timeDistanceUrl = URL.createObjectURL(timeDistanceBlob);
+    const timeDistanceLink = document.createElement('a');
+    timeDistanceLink.href = timeDistanceUrl;
+    timeDistanceLink.download = `${baseFilename}_time_distance_pairs.json`;
+    document.body.appendChild(timeDistanceLink);
+    timeDistanceLink.click();
+    document.body.removeChild(timeDistanceLink);
+    URL.revokeObjectURL(timeDistanceUrl);
+  }
   
   return result;
 }
