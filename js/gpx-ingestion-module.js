@@ -43,11 +43,12 @@ function parsePointElement(pointElement, index, pointType) {
   }
   
   // Validate coordinate ranges: lat must be between -90 and 90, lon between -180 and 180
-  if (lat < -90 || lat > 90 || lon < -180 || lon > 180) {
+  // Also check that coordinates are finite numbers
+  if (!isFinite(lat) || !isFinite(lon) || lat < -90 || lat > 90 || lon < -180 || lon > 180) {
     return {
       valid: false,
       point: null,
-      rejectionReason: `Coordinates out of valid range: lat=${lat} (must be -90 to 90), lon=${lon} (must be -180 to 180)`,
+      rejectionReason: `Coordinates out of valid range or non-finite: lat=${lat} (must be -90 to 90), lon=${lon} (must be -180 to 180)`,
       rawData: rawData
     };
   }
