@@ -40,13 +40,15 @@ function auditSampling(points, gpxFilename) {
   console.log('Total points received:', points.length);
   
   const timeDeltasMs = [];
-  const distanceDeltasM = [];
+  const distanceDeltasMTimeConditioned = [];
+  const distanceDeltasMGeometryOnly = [];
   const timeDistancePairs = []; // Initialize early for result object
   let previousTimestampMs = null;
   let previousPoint = null; // Track previous point with valid coordinates
-  let hasValidTimestamps = false; // Track if we've seen any valid timestamps
+  let hasValidTimestamps = false; // Descriptive only: any parseable timestamp present
+  let hasTimeProgression = false; // true iff at least one positive consecutive time delta (dt > 0)
   
-  // First pass: determine if we have any valid timestamps
+  // First pass: determine if we have any valid (parseable) timestamps (descriptive only; does not gate collection)
   for (let i = 0; i < points.length; i++) {
     const point = points[i];
     const timeRaw = point.timeRaw;
@@ -59,7 +61,7 @@ function auditSampling(points, gpxFilename) {
     }
   }
   
-  console.log('Has valid timestamps:', hasValidTimestamps);
+  console.log('Has valid timestamps (presence):', hasValidTimestamps);
   console.log('========================================');
   
   // Time delta audit counters
@@ -87,7 +89,23 @@ function auditSampling(points, gpxFilename) {
       hasValidTimestamp = !isNaN(currentTimestampMs);
     }
     
-    // Compute time delta if we have valid timestamps
+    // Geometry-only distance: always compute for every consecutive valid coordinate pair (no timestamp dependency)
+    if (previousPoint !== null) {
+      consecutivePointPairsConsidered++;
+      const distance = haversineDistance(
+        previousPoint.lat,
+        previousPoint.lon,
+        point.lat,
+        point.lon
+      );
+      if (isFinite(distance) && distance > 0) {
+        distanceDeltasMGeometryOnly.push(distance);
+      } else {
+        rejectedDistanceInvalidOrZero++;
+      }
+    }
+    
+    // Time delta and time-conditioned distance: only when we have positive progression (dt > 0)
     if (hasValidTimestamp) {
       timestampedPointsCount++;
       
@@ -95,12 +113,12 @@ function auditSampling(points, gpxFilename) {
         consecutiveTimestampPairsCount++;
         const delta = currentTimestampMs - previousTimestampMs;
         
-        // Collect only positive deltas (delta > 0)
         if (delta > 0) {
           positiveTimeDeltasCollected++;
           timeDeltasMs.push(delta);
+          hasTimeProgression = true;
           
-          // If timestamps exist and ordering is known, compute distance delta for this pair
+          // Time-conditioned distance delta for this pair only when dt > 0
           if (previousPoint !== null) {
             const distance = haversineDistance(
               previousPoint.lat,
@@ -108,10 +126,8 @@ function auditSampling(points, gpxFilename) {
               point.lat,
               point.lon
             );
-            
-            // Ignore invalid, zero, or non-finite distances
             if (isFinite(distance) && distance > 0) {
-              distanceDeltasM.push(distance);
+              distanceDeltasMTimeConditioned.push(distance);
             }
           }
         } else {
@@ -119,28 +135,14 @@ function auditSampling(points, gpxFilename) {
         }
       }
       previousTimestampMs = currentTimestampMs;
-    } else if (!hasValidTimestamps) {
-      // If timestamps are missing entirely, compute distance for all consecutive points
-      if (previousPoint !== null) {
-        consecutivePointPairsConsidered++;
-        const distance = haversineDistance(
-          previousPoint.lat,
-          previousPoint.lon,
-          point.lat,
-          point.lon
-        );
-        
-        // Ignore invalid, zero, or non-finite distances
-        if (isFinite(distance) && distance > 0) {
-          distanceDeltasM.push(distance);
-        } else {
-          rejectedDistanceInvalidOrZero++;
-        }
-      }
     }
     
     // Update previous point (coordinates are already validated during ingestion)
     previousPoint = { lat: point.lat, lon: point.lon };
+  }
+  
+  if (hasValidTimestamps && !hasTimeProgression) {
+    console.log('Timestamps detected but show no positive progression; time-based analysis disabled.');
   }
   
   // Time delta audit summary
@@ -151,15 +153,18 @@ function auditSampling(points, gpxFilename) {
   console.log('Rejected (delta <= 0):', rejectedTimestampPairsDeltaLeqZero);
   console.log('========================');
   
+  // Primary distance series for charts/exports: time-conditioned when progression exists, else geometry-only
+  const distanceDeltasM = hasTimeProgression ? distanceDeltasMTimeConditioned : distanceDeltasMGeometryOnly;
+  
   // Distance delta audit summary
-  if (hasValidTimestamps) {
+  if (hasTimeProgression) {
     console.log('=== Distance Delta Audit (time-conditioned) ===');
-    console.log('Distance deltas collected:', distanceDeltasM.length);
+    console.log('Distance deltas collected:', distanceDeltasMTimeConditioned.length);
     console.log('===============================================');
   } else {
     console.log('=== Distance Delta Audit (geometry-only) ===');
     console.log('Consecutive point pairs considered:', consecutivePointPairsConsidered);
-    console.log('Distance deltas collected:', distanceDeltasM.length);
+    console.log('Distance deltas collected:', distanceDeltasMGeometryOnly.length);
     console.log('Rejected (invalid or zero distance):', rejectedDistanceInvalidOrZero);
     console.log('============================================');
   }
@@ -196,7 +201,11 @@ function auditSampling(points, gpxFilename) {
     maxDeltaMs: maxDeltaMs,
     medianDeltaMs: medianDeltaMs,
     distanceDeltasM: distanceDeltasM,
-    timeDistancePairs: timeDistancePairs
+    distanceDeltasMGeometryOnly: distanceDeltasMGeometryOnly,
+    distanceDeltasMTimeConditioned: distanceDeltasMTimeConditioned,
+    timeDistancePairs: timeDistancePairs,
+    hasTimeProgression: hasTimeProgression,
+    hasValidTimestamps: hasValidTimestamps
   };
   
   // Console log the audit results
@@ -216,7 +225,7 @@ function auditSampling(points, gpxFilename) {
   console.log('================================');
   
   // Separate pass: Joint time-distance audit artifact
-  // Only generate if GPX contains valid timestamps
+  // Only generate when timestamps show positive progression (hasTimeProgression)
   // Note: timeDistancePairs was initialized at the top of the function
   
   // Joint audit counters
@@ -227,7 +236,7 @@ function auditSampling(points, gpxFilename) {
   let jointRejectedInvalidOrZeroDistance = 0;
   let jointValidPairsCollected = 0;
   
-  if (hasValidTimestamps) {
+  if (hasTimeProgression) {
     let prevPoint = null;
     let prevTimestampMs = null;
     
@@ -303,6 +312,15 @@ function auditSampling(points, gpxFilename) {
     console.log('  - Invalid/zero distance:', jointRejectedInvalidOrZeroDistance);
     console.log('================================');
   }
+  
+  // Expose counters for pipeline status display (same values used for console logging)
+  result.rejectedTimestampPairsDeltaLeqZero = rejectedTimestampPairsDeltaLeqZero;
+  result.consecutivePointPairsConsidered = consecutivePointPairsConsidered;
+  result.rejectedDistanceInvalidOrZero = rejectedDistanceInvalidOrZero;
+  result.jointPairsWithBothTimestamps = jointPairsWithBothTimestamps;
+  result.jointRejectedMissingTimestamp = jointRejectedMissingTimestamp;
+  result.jointRejectedNonPositiveDt = jointRejectedNonPositiveDt;
+  result.jointRejectedInvalidOrZeroDistance = jointRejectedInvalidOrZeroDistance;
   
   return result;
 }

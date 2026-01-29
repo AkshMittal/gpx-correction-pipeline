@@ -1,36 +1,185 @@
-INGESTION MODULE:
-    - keeping raw data, no inspection or mutating of data in this module 
-    - data categorized into essential and non essential for mental module
-        - coords are essential and the point is just filtered out if invalid format or missing coords or out of reality bounds
-        - elevation and timestamps are pushed null if invalid format or missing
-        - extensions are saved as whole unparsed DOM objects so that they can be used in future
-==============================================================================================================================
-TIMESTAMP AUDIT MODULE:
-    - currently the filtering is through 1 to 1 comparison only- meaning that blocks of backward tracking are not determinable yet, instead single point comparison are only possible
-      this was done because considering otherwise will mean - for example there is a timestamp sequence of 90 70 80 - the 90 70 comparison flags 70 as backtrack which is good but then if we compare 80 to 90 to determine the full backtracked block that cements that we are assuming 90 is actually the correct timeline.
-      just to make sure we are not assuming here, ive kept this to 1 to 1 flagging rn so real data can be studied for cases of backtracking to see what does actual patter look like before cementing flagging logic. 
+## 1. Essential context — what this tool is, what it is not
 
-    - other than that this module is rn basically a data logger curretly that logs all invariants in 1 to 1 comparison, equal timestamps, backtracks, unparsable timestamps 
+This tool exists to analyze the **quality and internal consistency of a GPX file**, and by extension the **logging behavior of the device or software** that produced it.
 
-=====================================================================================================================================
-SAMPLING AUDIT MODULE:
-    - outputs 3 jsons time delta, distance deltas and time-distance pairs of valid points. 
-    - only positive values for time deltas are taken into meaning no backtracks or 0 time deltas. 
-    - time deltas are calculated if timestamps are available and valid and give positive value. distance deltas are always calculated and pushed if positive. 
-    - for time-distance delta pairs we are using previosValidpoint so that consecutive valid points, not "all consecutive points" are compared. that ensures that even if there is a point skip a bigger pair of time and distance delta is pushed cause that ensures that we are getting most out of the data
-=============================================================================================================================================
-KDE VISUALIZATION MODULE:
-    - why even do this - to get an idea of sampling schemes and quality. can be timebased, can be distance based, can be smart and variable of which we wont have much idea rn
-    - using gaussian KDE(kernel density estimation) for studying probability density of data of both the distance and time deltas. used this because this provides a continuous graph while avoiding hard constraints like bins used in a histogram. 
-      every data point must effect other points around it, which cannot be done with hard bins. 
-    - Gaussian kernels have infinite support, which causes boundary bias on bounded domains like we have currently - our data is postive only.  
-    - another thing is that there are outlier points on both delta time and delta distance that are way out fmo the majority percentile that sits near to the origin. these are often long pauses on the gpx such as rests or incorrect teleporting readings. 
-      this actually distorts the graph alot if we dont have appropriate bandwidth along with scaling. 
-    - silvermans rule isnt enough because it also assumes stable data. and there are different requirements of different usecases of the gpx. 
-      some want the general trend of the time deltas while some want concetrated peaks to see if say the gpx device has battery saving states that it changed sampling rate confidently. usecase dependen
-    - so gave a slider with reasonsable constraints to control bandwidths of the KDE's. 
-    - to fit in such largely varrying data of raw gpxs, we used natural log scale for the x axis that represent the deltas. on the front end its still displayed in linear values but the scaling is according to there natural logs so space near origin is expanded since most data usually lives there for normal devices.
-    - also used rug plots for plotting where data lives. now, it doesn't indicate density or any peaks. its just for data plotting. overlapping/exactly same plotted points dont stack up, they just overlap, for that purpose refer to the KDE graphline. cluttered rug dashes indicate that there are many different data points of similar but not same value and should be takes for a grain of salt as truth to density, since overlapping datapoints are still represented by a single dashed line. 
-    - the scatterplot is actually the representation of the time-distance delta pairs. This is the holy grail for gpx quality checking when logistics of how the gpx was logged are known. outliers, noise and whats real can be assesed here. 
-    - for mountain route/ trekking/climbing/hiking and human activities, in a decent enough gpx, there shud be a trickling trail to any point high above for it to be valid provided that the data quality is good and there are not many rejected points for the gpx. becaues that will indicate gradual increasing acceleration. furthermore the higher and more isolated a point is on this graph the more likely it is that its an outlier teleport that is a gps logging fault. 
+It does **not** assign a score.
+It does **not** make predictions.
+It does **not** derive conclusions.
+
+The tool exposes **observable properties, constraints, and invariants** present in the GPX. Any interpretation beyond that is intentionally left to the reader.
+
+This is an **observation-only instrument**. It is not meant to be repurposed for ranking, validation of performance, or downstream automation.
+
+### What this tool is not
+
+* Not a fitness or performance analysis tool
+* Not a route difficulty estimator
+* Not a GPS correction or smoothing utility
+* Not a GPX repair tool
+* Not a validator that decides whether a GPX is “good” or “bad”
+
+If you are looking for corrected data, inferred intent, or summarized judgments, this tool is intentionally not designed for that.
+
+### Intended inputs and constraints
+
+This tool is best used with **raw GPX files**:
+
+* recorded directly by a device or application
+* not manually merged
+* not resampled
+* not smoothed or pre-processed
+
+Merged or post-processed GPX files often introduce **artificial invariants** (uniform timestamps, reordered points, interpolated segments) that this system does not assume or correct for.
+
+Some malformed or edited GPX files may still load, but the resulting audits should be treated with caution.
+
+---
+
+## 2. How the system behaves — pipeline guarantees and non-guarantees
+
+Although often described as a “pipeline”, this system is **not a traditional processing pipeline**. It does not progressively clean, fix, or transform the GPX.
+
+Most stages **do not mutate data**. They observe and audit.
+
+### Ingestion and the only upstream mutation
+
+The only upstream mutation happens at ingestion:
+
+* points with invalid or non-finite coordinates are rejected immediately
+
+Coordinates are treated as **fundamental**. Without valid spatial information, all other GPX attributes become meaningless.
+
+After this step, the dataset is frozen.
+
+### Timestamp audit philosophy
+
+Timestamps are treated as **optional but informative** data.
+
+The timestamp audit checks only for:
+
+* presence
+* parseability
+* **local ordering violations**
+
+Backtracking is flagged **only for consecutive point-to-point comparisons**.
+
+Example:
+
+```
+90 → 70 → 80
+```
+
+The transition `90 → 70` is flagged.
+No assumptions are made about which value is “correct” across the larger block.
+
+This conservative approach avoids block-level inference and prefers **false negatives over false positives**.
+
+Timestamps are never reordered, corrected, or interpolated. They are flagged, not mutated.
+
+### Why the pipeline is not linearly mutated
+
+All downstream audits — timestamp audit, sampling audit, and visualization — operate on the **same ingestion-filtered data**.
+
+The timestamp audit does not produce corrected output, only observations. For this reason, the sampling audit intentionally reads from **ingestion output**, not from timestamp audit output.
+
+This design prevents cascading assumptions and keeps each module epistemically isolated.
+
+### Sampling audits and local computation
+
+Sampling-related metrics (time deltas, distance deltas, joint pairs) are computed **locally and ephemerally**.
+
+These computations:
+
+* do not mutate the GPX
+* do not write back corrected values
+* exist only to support visualization
+
+If timestamps do not show temporal progression, time-based deltas are disabled. In such cases, geometry-based distance deltas may still be computed.
+
+---
+
+## 3. Design and visualization notes — why these graphs, why these choices
+
+This section is a deeper dive into **why the visualization looks the way it does**. It is not required reading to use the tool correctly.
+
+### Why KDE instead of histograms
+
+The first principle was to avoid **hard binning**.
+
+Histogram bins introduce arbitrary boundaries. Two values on either side of a bin edge are treated as categorically different, while values far apart within the same bin are treated as identical.
+
+For GPX sampling data, this is misleading.
+
+Kernel Density Estimation (KDE) allows:
+
+* a continuous view of distribution shape
+* every data point to influence nearby regions
+* no hard discontinuities introduced by bin edges
+
+### Why Gaussian kernels and why scaling mattered
+
+Gaussian kernels were chosen for their smoothness and simplicity. However, Gaussian kernels have **infinite support**, which introduces boundary bias when the data domain is strictly positive (as time and distance deltas are).
+
+This problem was especially visible near the origin, where most real GPX data lives.
+
+Instead of clipping or reflecting the distribution, the solution was to change the **representation space**.
+
+### Why log-scaled axes
+
+Raw GPX deltas span multiple orders of magnitude:
+
+* frequent small deltas from regular sampling
+* rare large deltas from pauses or logging gaps
+
+Using a linear scale collapses most of the data near zero and exaggerates outliers.
+
+By computing KDE in **log space**:
+
+* structure near the origin becomes visible
+* long tails remain representable
+* no artificial truncation is introduced
+
+Values are still displayed in linear units. Only spacing is logarithmic.
+
+### Why controllable bandwidth
+
+There is no single “correct” bandwidth.
+
+Different questions require different smoothness:
+
+* broad trends in sampling behavior
+* sharp peaks indicating fixed sampling intervals
+* subtle secondary modes from power-saving or state changes
+
+Automatic rules (such as Silverman’s rule) assume stable, well-behaved distributions. Raw GPX data often violates these assumptions.
+
+A controllable bandwidth makes this tradeoff explicit instead of implicit.
+
+### Why these three plots
+
+Each plot answers a different, non-overlapping question:
+
+* **KDE plots** show distribution shape and dominant sampling scales
+* **Rug plots** show where data exists, not how much exists at a point
+* **Scatter plots** show joint time–distance behavior
+
+The scatter plot is often the most diagnostic view. For human movement, a plausible GPX usually forms a continuous trail. Highly isolated points often indicate logging faults or GPS teleportation.
+
+### What these plots do not do
+
+* They do not prove correctness
+* They do not validate activity quality
+* They do not summarize performance
+
+They make structure visible, and stop there.
+
+---
+
+### Final note
+
+This tool is designed to make a GPX file **legible**, not authoritative.
+
+It exposes structure, constraints, and failure modes, and deliberately preserves ambiguity.
+
+Anything beyond that is left to human judgment.
 

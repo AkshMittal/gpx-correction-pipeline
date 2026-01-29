@@ -370,6 +370,113 @@ function renderKDEPlot(containerId, kdePoints, peaks, rawData, xLabel, title) {
 }
 
 /**
+ * Renders an empty chart with axes and a message (e.g. when valid timestamps not present).
+ * @param {string} containerId - ID of container element
+ * @param {string} chartType - "time-kde" | "distance-kde" | "scatter" for axis labels
+ * @param {string} message - Text to display
+ */
+function renderEmptyChartWithMessage(containerId, chartType, message) {
+  const container = d3.select(`#${containerId}`);
+  container.selectAll("*").remove();
+
+  const margin = { top: 40, right: 30, bottom: 60, left: 80 };
+  const width = 800 - margin.left - margin.right;
+  const height = 400 - margin.top - margin.bottom;
+
+  const svg = container.append("svg")
+    .attr("width", width + margin.left + margin.right)
+    .attr("height", height + margin.top + margin.bottom);
+
+  const g = svg.append("g")
+    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+  if (chartType === "time-kde") {
+    const xScale = d3.scaleLinear().domain([0.1, 100]).range([0, width]);
+    const yScale = d3.scaleLinear().domain([0, 1]).range([height, 0]);
+    g.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(xScale).tickFormat(d => d.toFixed(1)))
+      .attr("stroke", "#ffffff")
+      .attr("color", "#ffffff");
+    g.append("g")
+      .call(d3.axisLeft(yScale))
+      .attr("stroke", "#ffffff")
+      .attr("color", "#ffffff");
+    g.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 45)
+      .attr("fill", "#ffffff")
+      .style("text-anchor", "middle")
+      .text("Time Delta (seconds)");
+    g.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("y", -50)
+      .attr("x", -height / 2)
+      .attr("fill", "#ffffff")
+      .style("text-anchor", "middle")
+      .text("Density");
+  } else if (chartType === "distance-kde") {
+    const xScale = d3.scaleLinear().domain([0.1, 1000]).range([0, width]);
+    const yScale = d3.scaleLinear().domain([0, 1]).range([height, 0]);
+    g.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(xScale).tickFormat(d => d.toFixed(1)))
+      .attr("stroke", "#ffffff")
+      .attr("color", "#ffffff");
+    g.append("g")
+      .call(d3.axisLeft(yScale))
+      .attr("stroke", "#ffffff")
+      .attr("color", "#ffffff");
+    g.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 45)
+      .attr("fill", "#ffffff")
+      .style("text-anchor", "middle")
+      .text("Distance Delta (meters)");
+    g.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("y", -50)
+      .attr("x", -height / 2)
+      .attr("fill", "#ffffff")
+      .style("text-anchor", "middle")
+      .text("Density");
+  } else {
+    const xScale = d3.scaleLinear().domain([0, 100]).range([0, width]);
+    const yScale = d3.scaleLinear().domain([0, 1000]).range([height, 0]);
+    g.append("g")
+      .attr("transform", `translate(0,${height})`)
+      .call(d3.axisBottom(xScale))
+      .attr("stroke", "#ffffff")
+      .attr("color", "#ffffff");
+    g.append("g")
+      .call(d3.axisLeft(yScale))
+      .attr("stroke", "#ffffff")
+      .attr("color", "#ffffff");
+    g.append("text")
+      .attr("x", width / 2)
+      .attr("y", height + 45)
+      .attr("fill", "#ffffff")
+      .style("text-anchor", "middle")
+      .text("Time Delta (seconds)");
+    g.append("text")
+      .attr("transform", "rotate(-90)")
+      .attr("y", -50)
+      .attr("x", -height / 2)
+      .attr("fill", "#ffffff")
+      .style("text-anchor", "middle")
+      .text("Distance Delta (meters)");
+  }
+
+  g.append("text")
+    .attr("x", width / 2)
+    .attr("y", height / 2)
+    .attr("fill", "#ffffff")
+    .style("text-anchor", "middle")
+    .style("font-size", "14px")
+    .text(message);
+}
+
+/**
  * Renders scatterplot of joint time-distance pairs
  * 
  * @param {string} containerId - ID of container element
@@ -395,6 +502,9 @@ function renderScatterPlot(containerId, pairs) {
   const g = svg.append("g")
     .attr("transform", `translate(${margin.left},${margin.top})`);
   
+  // Inner group for zoom so g keeps margin (reset won't lose margin)
+  const zoomG = g.append("g");
+  
   // Add clipPath to prevent overflow
   const clipPath = svg.append("defs").append("clipPath")
     .attr("id", `clip-${containerId}`)
@@ -402,9 +512,12 @@ function renderScatterPlot(containerId, pairs) {
     .attr("width", width)
     .attr("height", height);
   
-  // Original scales with full domain
-  const xDomainOriginal = d3.extent(pairs, d => d.dtSec);
-  const yDomainOriginal = d3.extent(pairs, d => d.ddMeters);
+  // Domains in log space (same approach as KDE: log-transform for positioning, scaleLinear)
+  const safeLog = (v) => Math.log(Math.max(1e-10, v));
+  const xLogExtent = d3.extent(pairs, d => safeLog(d.dtSec));
+  const yLogExtent = d3.extent(pairs, d => safeLog(d.ddMeters));
+  const xDomainOriginal = xLogExtent;
+  const yDomainOriginal = yLogExtent;
   
   const xScaleOriginal = d3.scaleLinear()
     .domain(xDomainOriginal)
@@ -416,34 +529,32 @@ function renderScatterPlot(containerId, pairs) {
     .nice()
     .range([height, 0]);
   
-  // Working scales (will be updated on zoom)
+  // Working scales (will be updated on zoom); domain is log space
   const xScale = xScaleOriginal.copy();
   const yScale = yScaleOriginal.copy();
   
-  // Create groups for different elements with clipping
-  const plotGroup = g.append("g")
+  // Create groups for different elements with clipping (under zoomG)
+  const plotGroup = zoomG.append("g")
     .attr("clip-path", `url(#clip-${containerId})`);
   
   const pointsGroup = plotGroup.append("g").attr("class", "points");
   
-  const xAxis = g.append("g")
+  const xAxis = zoomG.append("g")
     .attr("class", "x-axis")
     .attr("transform", `translate(0,${height})`);
   
-  const yAxis = g.append("g")
+  const yAxis = zoomG.append("g")
     .attr("class", "y-axis");
   
-  // Function to redraw elements
+  // Function to redraw elements (do not call nice() here; domain is set by zoom or initial scale)
   const redraw = () => {
-    // Apply nice() to scales for better axis tick marks
-    xScale.nice();
-    yScale.nice();
-    
-    // Update points - filter to only show points within current domain
-    const visiblePairs = pairs.filter(d => 
-      d.dtSec >= xScale.domain()[0] && d.dtSec <= xScale.domain()[1] &&
-      d.ddMeters >= yScale.domain()[0] && d.ddMeters <= yScale.domain()[1]
-    );
+    // Update points - filter by current domain (log space)
+    const visiblePairs = pairs.filter(d => {
+      const xLog = safeLog(d.dtSec);
+      const yLog = safeLog(d.ddMeters);
+      return xLog >= xScale.domain()[0] && xLog <= xScale.domain()[1] &&
+             yLog >= yScale.domain()[0] && yLog <= yScale.domain()[1];
+    });
     
     const circles = pointsGroup.selectAll("circle")
       .data(visiblePairs);
@@ -454,8 +565,8 @@ function renderScatterPlot(containerId, pairs) {
       .attr("fill", "steelblue")
       .attr("opacity", 0.6)
       .merge(circles)
-      .attr("cx", d => xScale(d.dtSec))
-      .attr("cy", d => yScale(d.ddMeters))
+      .attr("cx", d => xScale(safeLog(d.dtSec)))
+      .attr("cy", d => yScale(safeLog(d.ddMeters)))
       .on("mouseover", function(event, d) {
         tooltip
           .style("visibility", "visible")
@@ -469,30 +580,45 @@ function renderScatterPlot(containerId, pairs) {
     
     circles.exit().remove();
     
-    // Update axes with proper formatting
-    xAxis.call(d3.axisBottom(xScale).tickSizeOuter(0));
-    yAxis.call(d3.axisLeft(yScale).tickSizeOuter(0));
+    // Update axes: scale emits log-space values; convert to linear for display (same as KDE)
+    const tickCount = 6;
+    const xAxisBottom = d3.axisBottom(xScale)
+      .ticks(tickCount)
+      .tickSizeOuter(0)
+      .tickFormat(d => {
+        const linearValue = Math.exp(d);
+        return d3.format(".2g")(linearValue);
+      });
+    const yAxisLeft = d3.axisLeft(yScale)
+      .ticks(tickCount)
+      .tickSizeOuter(0)
+      .tickFormat(d => {
+        const linearValue = Math.exp(d);
+        return d3.format(".2g")(linearValue);
+      });
+    xAxis.call(xAxisBottom);
+    yAxis.call(yAxisLeft);
   };
   
   // Initial draw
   redraw();
   
-  // X-axis label
+  // X-axis label: log-scaled space, linear values (seconds)
   xAxis.append("text")
     .attr("x", width / 2)
     .attr("y", 45)
     .attr("fill", "black")
     .style("text-anchor", "middle")
-    .text("Time Delta (seconds)");
+    .text("Time delta (seconds, log-scaled)");
   
-  // Y-axis label
+  // Y-axis label: log-scaled space, linear values (meters)
   yAxis.append("text")
     .attr("transform", "rotate(-90)")
     .attr("y", -50)
     .attr("x", -height / 2)
     .attr("fill", "black")
     .style("text-anchor", "middle")
-    .text("Distance Delta (meters)");
+    .text("Distance delta (meters, log-scaled)");
   
   // Title
   svg.append("text")
@@ -513,46 +639,48 @@ function renderScatterPlot(containerId, pairs) {
     .style("border-radius", "3px")
     .style("pointer-events", "none");
   
-  // Pan behavior only (no zoom)
+  // Pan behavior only (no zoom); pan-by-rescale only (reset zoomG transform so no double-apply)
   const zoom = d3.zoom()
     .scaleExtent([1, 1]) // Disable zoom, only allow panning
     .extent([[0, 0], [width, height]])
     .on("zoom", function(event) {
-      // Update scales based on pan transform (translation only, no scaling)
       const transform = event.transform;
       let newXDomain = transform.rescaleX(xScaleOriginal).domain();
       let newYDomain = transform.rescaleY(yScaleOriginal).domain();
       
-      // Constrain domains to original domain only (no clamping to zero)
-      // X-axis: clamp to original domain
+      // Constrain domains to original domain only
       newXDomain[0] = Math.max(xDomainOriginal[0], Math.min(newXDomain[0], xDomainOriginal[1]));
       newXDomain[1] = Math.max(newXDomain[0], Math.min(newXDomain[1], xDomainOriginal[1]));
-      
-      // Y-axis: clamp to original domain
       newYDomain[0] = Math.max(yDomainOriginal[0], Math.min(newYDomain[0], yDomainOriginal[1]));
       newYDomain[1] = Math.max(newYDomain[0], Math.min(newYDomain[1], yDomainOriginal[1]));
       
-      // Update scales with constrained domains
+      // Avoid degenerate domain (would collapse all points to one line)
+      const minSpan = 1e-10;
+      if (newXDomain[1] - newXDomain[0] < minSpan || newYDomain[1] - newYDomain[0] < minSpan) {
+        zoomG.attr("transform", null);
+        return;
+      }
+      
       xScale.domain(newXDomain);
       yScale.domain(newYDomain);
-      
-      // Redraw all elements (nice() will be applied in redraw)
       redraw();
+      
+      // Pan by rescale only: undo transform on zoomG so only scale drives position
+      zoomG.attr("transform", null);
     });
   
   // Add transparent rect for panning (behind points)
-  g.insert("rect", ":first-child")
+  zoomG.insert("rect", ":first-child")
     .attr("width", width)
     .attr("height", height)
     .attr("fill", "transparent")
     .style("cursor", "grab");
   
-  // Add pan to the main group
-  g.call(zoom);
+  zoomG.call(zoom);
   
-  // Store zoom reference for reset functionality
+  // Store zoom and zoomG for reset (zoomG keeps margin on g)
   window[`${containerId}_zoom`] = zoom;
-  window[`${containerId}_g`] = g;
+  window[`${containerId}_g`] = zoomG;
 }
 
 /**
@@ -568,45 +696,64 @@ function renderScatterPlot(containerId, pairs) {
  */
 function visualizeSamplingData(samplingData, options = {}) {
   const { timeDeltasMs, distanceDeltasM, timeDistancePairs } = samplingData;
-  
+  const timeDeltasMsSafe = timeDeltasMs || [];
+  const pairs = timeDistancePairs || [];
+
   // Convert time deltas from milliseconds to seconds for KDE
-  const timeDeltasSec = timeDeltasMs.map(ms => ms / 1000);
-  
+  const timeDeltasSec = timeDeltasMsSafe.map(ms => ms / 1000);
+
   // Transform data to log space for bandwidth computation
   const timeDeltasSecLog = timeDeltasSec.filter(d => d > 0 && isFinite(d)).map(d => Math.log(d));
   const distanceDeltasMLog = distanceDeltasM.filter(d => d > 0 && isFinite(d)).map(d => Math.log(d));
-  
-  // Determine bandwidths in log space
-  // Using Silverman's rule of thumb as a deterministic default: h = 1.06 * σ * n^(-1/5)
-  // Computed in log space for log-space KDE
-  const timeStdDevLog = d3.deviation(timeDeltasSecLog) || 1;
-  const timeN = timeDeltasSecLog.length;
-  const timeBandwidthLog = options.timeBandwidth ? Math.log(options.timeBandwidth) : (1.06 * timeStdDevLog * Math.pow(timeN, -0.2));
-  
-  const distanceStdDevLog = d3.deviation(distanceDeltasMLog) || 1;
-  const distanceN = distanceDeltasMLog.length;
-  const distanceBandwidthLog = options.distanceBandwidth ? Math.log(options.distanceBandwidth) : (1.06 * distanceStdDevLog * Math.pow(distanceN, -0.2));
-  
-  // Compute KDEs in log space (bandwidth is in log space)
-  const timeKDE = computeKDE(timeDeltasSec, timeBandwidthLog);
-  const distanceKDE = computeKDE(distanceDeltasM, distanceBandwidthLog);
-  
-  // Detect peaks
-  const timePeaks = detectPeaks(timeKDE);
-  const distancePeaks = detectPeaks(distanceKDE);
-  
-  // Store original data globally for bandwidth slider recomputation
-  // Store bandwidths in log space for KDE computation
-  window.kdeTimeDeltasSec = timeDeltasSec;
-  window.kdeDistanceDeltasM = distanceDeltasM;
-  window.kdeTimeBandwidthLog = timeBandwidthLog;
-  window.kdeDistanceBandwidthLog = distanceBandwidthLog;
-  
-  // Render plots (domain derived from KDE points only)
-  // Pass raw data arrays for rug plot overlay
-  renderKDEPlot("time-kde-plot", timeKDE, timePeaks, timeDeltasSec, "Time Delta (seconds)", "Time Delta KDE");
-  renderKDEPlot("distance-kde-plot", distanceKDE, distancePeaks, distanceDeltasM, "Distance Delta (meters)", "Distance Delta KDE");
-  renderScatterPlot("time-distance-scatter", timeDistancePairs || []);
+
+  const hasValidTimeData = timeDeltasSecLog.length > 0;
+  const hasValidDistanceData = distanceDeltasMLog.length > 0;
+
+  let timeKDE = [];
+  let timePeaks = [];
+  let timeBandwidthLog = null;
+  let distanceKDE = [];
+  let distancePeaks = [];
+  let distanceBandwidthLog = null;
+
+  // If no valid timestamps, render empty charts with message for time KDE and scatter
+  if (!hasValidTimeData) {
+    renderEmptyChartWithMessage("time-kde-plot", "time-kde", "valid timestamps not found in gpx");
+    renderEmptyChartWithMessage("time-distance-scatter", "scatter", "valid timestamps not found in gpx");
+    window.kdeTimeDeltasSec = null;
+    window.kdeTimeBandwidthLog = null;
+  }
+
+  // If no distance deltas, render empty chart with message for distance KDE
+  if (!hasValidDistanceData) {
+    renderEmptyChartWithMessage("distance-kde-plot", "distance-kde", "no distance deltas in gpx");
+    window.kdeDistanceDeltasM = null;
+    window.kdeDistanceBandwidthLog = null;
+  } else {
+    // Determine bandwidths in log space (distance only when distance data exists)
+    const distanceStdDevLog = d3.deviation(distanceDeltasMLog) || 1;
+    const distanceN = distanceDeltasMLog.length;
+    distanceBandwidthLog = options.distanceBandwidth ? Math.log(options.distanceBandwidth) : (1.06 * distanceStdDevLog * Math.pow(distanceN, -0.2));
+
+    distanceKDE = computeKDE(distanceDeltasM, distanceBandwidthLog);
+    distancePeaks = detectPeaks(distanceKDE);
+    window.kdeDistanceDeltasM = distanceDeltasM;
+    window.kdeDistanceBandwidthLog = distanceBandwidthLog;
+    renderKDEPlot("distance-kde-plot", distanceKDE, distancePeaks, distanceDeltasM, "Distance Delta (meters)", "Distance Delta KDE");
+  }
+
+  // Time KDE and scatter only when valid time data present
+  if (hasValidTimeData) {
+    const timeStdDevLog = d3.deviation(timeDeltasSecLog) || 1;
+    const timeN = timeDeltasSecLog.length;
+    timeBandwidthLog = options.timeBandwidth ? Math.log(options.timeBandwidth) : (1.06 * timeStdDevLog * Math.pow(timeN, -0.2));
+    timeKDE = computeKDE(timeDeltasSec, timeBandwidthLog);
+    timePeaks = detectPeaks(timeKDE);
+    window.kdeTimeDeltasSec = timeDeltasSec;
+    window.kdeTimeBandwidthLog = timeBandwidthLog;
+    renderKDEPlot("time-kde-plot", timeKDE, timePeaks, timeDeltasSec, "Time Delta (seconds)", "Time Delta KDE");
+    renderScatterPlot("time-distance-scatter", pairs);
+  }
   
   // Initialize bandwidth sliders operating natively in log-space
   // Slider value, min, max are in log-space; display shows exp(bandwidthLog)
@@ -670,12 +817,12 @@ function visualizeSamplingData(samplingData, options = {}) {
   }
   
   // Return computed data for potential JSON export (bandwidths in linear space for display)
-  const timeBandwidthLinear = Math.exp(timeBandwidthLog);
   const distanceBandwidthLinear = Math.exp(distanceBandwidthLog);
+  const timeBandwidthLinear = hasValidTimeData ? Math.exp(timeBandwidthLog) : null;
   
   return {
-    timeKDE: timeKDE,
-    timePeaks: timePeaks,
+    timeKDE: hasValidTimeData ? timeKDE : [],
+    timePeaks: hasValidTimeData ? timePeaks : [],
     distanceKDE: distanceKDE,
     distancePeaks: distancePeaks,
     timeBandwidth: timeBandwidthLinear,
