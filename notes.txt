@@ -1,18 +1,9 @@
 INGESTION MODULE:
     - keeping raw data, no inspection or mutating of data in this module 
     - data categorized into essential and non essential for mental module
-        - coords are essential and the point is just filtered out if invalid format or missing coords
+        - coords are essential and the point is just filtered out if invalid format or missing coords or out of reality bounds
         - elevation and timestamps are pushed null if invalid format or missing
         - extensions are saved as whole unparsed DOM objects so that they can be used in future
-
-
-
-
-
-
-
-
-
 ==============================================================================================================================
 TIMESTAMP AUDIT MODULE:
     - currently the filtering is through 1 to 1 comparison only- meaning that blocks of backward tracking are not determinable yet, instead single point comparison are only possible
@@ -20,3 +11,26 @@ TIMESTAMP AUDIT MODULE:
       just to make sure we are not assuming here, ive kept this to 1 to 1 flagging rn so real data can be studied for cases of backtracking to see what does actual patter look like before cementing flagging logic. 
 
     - other than that this module is rn basically a data logger curretly that logs all invariants in 1 to 1 comparison, equal timestamps, backtracks, unparsable timestamps 
+
+=====================================================================================================================================
+SAMPLING AUDIT MODULE:
+    - outputs 3 jsons time delta, distance deltas and time-distance pairs of valid points. 
+    - only positive values for time deltas are taken into meaning no backtracks or 0 time deltas. 
+    - time deltas are calculated if timestamps are available and valid and give positive value. distance deltas are always calculated and pushed if positive. 
+    - for time-distance delta pairs we are using previosValidpoint so that consecutive valid points, not "all consecutive points" are compared. that ensures that even if there is a point skip a bigger pair of time and distance delta is pushed cause that ensures that we are getting most out of the data
+=============================================================================================================================================
+KDE VISUALIZATION MODULE:
+    - why even do this - to get an idea of sampling schemes and quality. can be timebased, can be distance based, can be smart and variable of which we wont have much idea rn
+    - using gaussian KDE(kernel density estimation) for studying probability density of data of both the distance and time deltas. used this because this provides a continuous graph while avoiding hard constraints like bins used in a histogram. 
+      every data point must effect other points around it, which cannot be done with hard bins. 
+    - Gaussian kernels have infinite support, which causes boundary bias on bounded domains like we have currently - our data is postive only.  
+    - another thing is that there are outlier points on both delta time and delta distance that are way out fmo the majority percentile that sits near to the origin. these are often long pauses on the gpx such as rests or incorrect teleporting readings. 
+      this actually distorts the graph alot if we dont have appropriate bandwidth along with scaling. 
+    - silvermans rule isnt enough because it also assumes stable data. and there are different requirements of different usecases of the gpx. 
+      some want the general trend of the time deltas while some want concetrated peaks to see if say the gpx device has battery saving states that it changed sampling rate confidently. usecase dependen
+    - so gave a slider with reasonsable constraints to control bandwidths of the KDE's. 
+    - to fit in such largely varrying data of raw gpxs, we used natural log scale for the x axis that represent the deltas. on the front end its still displayed in linear values but the scaling is according to there natural logs so space near origin is expanded since most data usually lives there for normal devices.
+    - also used rug plots for plotting where data lives. now, it doesn't indicate density or any peaks. its just for data plotting. overlapping/exactly same plotted points dont stack up, they just overlap, for that purpose refer to the KDE graphline. cluttered rug dashes indicate that there are many different data points of similar but not same value and should be takes for a grain of salt as truth to density, since overlapping datapoints are still represented by a single dashed line. 
+    - the scatterplot is actually the representation of the time-distance delta pairs. This is the holy grail for gpx quality checking when logistics of how the gpx was logged are known. outliers, noise and whats real can be assesed here. 
+    - for mountain route/ trekking/climbing/hiking and human activities, in a decent enough gpx, there shud be a trickling trail to any point high above for it to be valid provided that the data quality is good and there are not many rejected points for the gpx. becaues that will indicate gradual increasing acceleration. furthermore the higher and more isolated a point is on this graph the more likely it is that its an outlier teleport that is a gps logging fault. 
+

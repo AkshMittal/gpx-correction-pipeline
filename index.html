@@ -57,6 +57,89 @@
             font-size: 14px;
             margin-top: 10px;
         }
+        .plot-container {
+            margin: 20px 0;
+            padding: 15px;
+            background: white;
+            border-radius: 4px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: visible;
+        }
+        .plot-container h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        .plot-container svg {
+            overflow: visible;
+        }
+        #visualization-section {
+            margin-top: 30px;
+        }
+        .download-button {
+            background: #28a745;
+            margin-top: 10px;
+        }
+        .download-button:hover {
+            background: #218838;
+        }
+        .reset-button {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+        }
+        .reset-button:hover {
+            background: #5a6268;
+        }
+        .bandwidth-control {
+            margin: 15px 0;
+            padding: 10px;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        .bandwidth-control label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: bold;
+            color: #333;
+        }
+        .bandwidth-control .slider-container {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .bandwidth-control input[type="range"] {
+            flex: 1;
+            height: 6px;
+            border-radius: 3px;
+            background: #ddd;
+            outline: none;
+        }
+        .bandwidth-control input[type="range"]::-webkit-slider-thumb {
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+        }
+        .bandwidth-control input[type="range"]::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: #007bff;
+            cursor: pointer;
+            border: none;
+        }
+        .bandwidth-value {
+            min-width: 80px;
+            font-family: monospace;
+            font-size: 14px;
+            color: #666;
+        }
     </style>
 </head>
 <body>
@@ -71,10 +154,65 @@
         </div>
         
         <div id="output"></div>
+        
+        <div id="visualization-section" style="display: none;">
+            <div class="plot-container">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2 style="margin: 0;">Time Delta KDE</h2>
+                    <button class="reset-button" onclick="resetChart('time-kde-plot')">Reset View</button>
+                </div>
+                <div class="bandwidth-control">
+                    <label for="time-bandwidth-slider">KDE Bandwidth (seconds)</label>
+                    <div style="font-size: 12px; color: #666; margin-bottom: 5px;">
+                        Controls how far in time each point spreads its influence.
+                    </div>
+                    <div class="slider-container">
+                        <input type="range" id="time-bandwidth-slider" 
+                               oninput="updateTimeKDE(parseFloat(this.value))">
+                        <span class="bandwidth-value" id="time-bandwidth-value">-</span>
+                    </div>
+                </div>
+                <div id="time-kde-plot"></div>
+            </div>
+            
+            <div class="plot-container">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2 style="margin: 0;">Distance Delta KDE</h2>
+                    <button class="reset-button" onclick="resetChart('distance-kde-plot')">Reset View</button>
+                </div>
+                <div class="bandwidth-control">
+                    <label for="distance-bandwidth-slider">KDE Bandwidth (meters)</label>
+                    <div class="slider-container">
+                        <input type="range" id="distance-bandwidth-slider" 
+                               oninput="updateDistanceKDE(parseFloat(this.value))">
+                        <span class="bandwidth-value" id="distance-bandwidth-value">-</span>
+                    </div>
+                </div>
+                <div id="distance-kde-plot"></div>
+            </div>
+            
+            <div class="plot-container">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h2 style="margin: 0;">Time-Distance Scatterplot</h2>
+                    <button class="reset-button" onclick="resetChart('time-distance-scatter')">Reset View</button>
+                </div>
+                <div id="time-distance-scatter"></div>
+            </div>
+            
+            <div class="file-input-section">
+                <h3>Download Audit Data</h3>
+                <button class="download-button" onclick="downloadTimeDeltas()">Download Time Deltas JSON</button>
+                <button class="download-button" onclick="downloadDistanceDeltas()">Download Distance Deltas JSON</button>
+                <button class="download-button" onclick="downloadTimeDistancePairs()">Download Time-Distance Pairs JSON</button>
+            </div>
+        </div>
     </div>
 
+    <script src="https://d3js.org/d3.v7.min.js"></script>
     <script src="js/gpx-ingestion-module.js"></script>
     <script src="js/timestamp-audit.js"></script>
+    <script src="js/sampling-audit.js"></script>
+    <script src="js/kde-visualization-module.js"></script>
     <script>
         // Browser-specific test function
         async function loadAndParseGPX() {
@@ -106,8 +244,27 @@
                 // Run timestamp audit
                 const auditMetadata = auditTimestamps(points);
                 
+                // Run sampling audit (pass filename for download naming)
+                const samplingMetadata = auditSampling(points, file.name);
+                
+                // Store sampling metadata globally for download buttons
+                window.currentSamplingMetadata = samplingMetadata;
+                window.currentGpxFilename = file.name;
+                
+                // Visualize sampling data
+                if (samplingMetadata.timeDeltasMs && samplingMetadata.timeDeltasMs.length > 0) {
+                    const visualizationData = visualizeSamplingData({
+                        timeDeltasMs: samplingMetadata.timeDeltasMs,
+                        distanceDeltasM: samplingMetadata.distanceDeltasM,
+                        timeDistancePairs: samplingMetadata.timeDistancePairs || []
+                    });
+                    
+                    // Show visualization section
+                    document.getElementById('visualization-section').style.display = 'block';
+                }
+                
                 // Update output
-                output.textContent = `GPX file parsed successfully.\n\nStatistics:\n- Total points found: ${stats.totalPointsFound}\n- Points discarded: ${stats.pointsDiscarded}\n- Remaining points: ${stats.remainingPoints}\n\nCheck console for parsed points array and timestamp audit results.`;
+                output.textContent = `GPX file parsed successfully.\n\nStatistics:\n- Total points found: ${stats.totalPointsFound}\n- Points discarded: ${stats.pointsDiscarded}\n- Remaining points: ${stats.remainingPoints}\n\nCheck console for parsed points array and audit results.`;
                 
             } catch (error) {
                 output.textContent = 'Error: ' + error.message;
@@ -115,13 +272,65 @@
             }
         }
         
-        // Make parseGPX and auditTimestamps available globally for console usage
+        // Download functions for audit data
+        function downloadTimeDeltas() {
+            if (!window.currentSamplingMetadata || !window.currentSamplingMetadata.timeDeltasMs) {
+                alert('No time deltas data available. Please parse a GPX file first.');
+                return;
+            }
+            
+            const baseFilename = window.currentGpxFilename 
+                ? window.currentGpxFilename.replace(/\.gpx$/i, '') 
+                : 'gpx';
+            const filename = `${baseFilename}_time_deltas.json`;
+            
+            exportTimeDeltasJSON(window.currentSamplingMetadata.timeDeltasMs, filename);
+        }
+        
+        function downloadDistanceDeltas() {
+            if (!window.currentSamplingMetadata || !window.currentSamplingMetadata.distanceDeltasM) {
+                alert('No distance deltas data available. Please parse a GPX file first.');
+                return;
+            }
+            
+            const baseFilename = window.currentGpxFilename 
+                ? window.currentGpxFilename.replace(/\.gpx$/i, '') 
+                : 'gpx';
+            const filename = `${baseFilename}_distance_deltas.json`;
+            
+            exportDistanceDeltasJSON(window.currentSamplingMetadata.distanceDeltasM, filename);
+        }
+        
+        function downloadTimeDistancePairs() {
+            if (!window.currentSamplingMetadata || !window.currentSamplingMetadata.timeDistancePairs) {
+                alert('No time-distance pairs data available. Please parse a GPX file first.');
+                return;
+            }
+            
+            const baseFilename = window.currentGpxFilename 
+                ? window.currentGpxFilename.replace(/\.gpx$/i, '') 
+                : 'gpx';
+            const filename = `${baseFilename}_time_distance_pairs.json`;
+            
+            exportTimeDistancePairsJSON(window.currentSamplingMetadata.timeDistancePairs, filename);
+        }
+        
+        // Make parseGPX, auditTimestamps, and auditSampling available globally for console usage
         window.parseGPX = parseGPX;
         window.parseGPXFile = parseGPXFile;
         window.auditTimestamps = auditTimestamps;
+        window.auditSampling = auditSampling;
+        window.visualizeSamplingData = visualizeSamplingData;
+        window.exportTimeDeltasJSON = exportTimeDeltasJSON;
+        window.exportDistanceDeltasJSON = exportDistanceDeltasJSON;
+        window.exportTimeDistancePairsJSON = exportTimeDistancePairsJSON;
+        window.resetChart = resetChart;
+        window.updateTimeKDE = updateTimeKDE;
+        window.updateDistanceKDE = updateDistanceKDE;
         
         console.log('GPX Ingestion Module loaded. Use parseGPX(gpxString) or parseGPXFile(file) in console.');
         console.log('Timestamp Audit Module loaded. Use auditTimestamps(points) in console.');
+        console.log('Sampling Audit Module loaded. Use auditSampling(points) in console.');
     </script>
 </body>
 </html>

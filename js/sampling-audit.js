@@ -41,6 +41,7 @@ function auditSampling(points, gpxFilename) {
   
   const timeDeltasMs = [];
   const distanceDeltasM = [];
+  const timeDistancePairs = []; // Initialize early for result object
   let previousTimestampMs = null;
   let previousPoint = null; // Track previous point with valid coordinates
   let hasValidTimestamps = false; // Track if we've seen any valid timestamps
@@ -194,7 +195,8 @@ function auditSampling(points, gpxFilename) {
     minDeltaMs: minDeltaMs,
     maxDeltaMs: maxDeltaMs,
     medianDeltaMs: medianDeltaMs,
-    distanceDeltasM: distanceDeltasM
+    distanceDeltasM: distanceDeltasM,
+    timeDistancePairs: timeDistancePairs
   };
   
   // Console log the audit results
@@ -215,7 +217,7 @@ function auditSampling(points, gpxFilename) {
   
   // Separate pass: Joint time-distance audit artifact
   // Only generate if GPX contains valid timestamps
-  const timeDistancePairs = [];
+  // Note: timeDistancePairs was initialized at the top of the function
   
   // Joint audit counters
   let jointConsecutivePairsInspected = 0;
@@ -302,61 +304,74 @@ function auditSampling(points, gpxFilename) {
     console.log('================================');
   }
   
-  // Extract base filename (without extension) for download filenames
-  const baseFilename = gpxFilename ? gpxFilename.replace(/\.gpx$/i, '') : 'gpx';
-  
-  // Export time deltas to JSON file
-  const timeExportPayload = {
+  return result;
+}
+
+/**
+ * Exports time deltas to JSON file
+ * @param {Array<number>} timeDeltasMs - Array of time deltas in milliseconds
+ * @param {string} filename - Filename for download
+ */
+function exportTimeDeltasJSON(timeDeltasMs, filename) {
+  const exportPayload = {
     deltas: timeDeltasMs,
     count: timeDeltasMs.length
   };
   
-  const timeJsonString = JSON.stringify(timeExportPayload, null, 2);
-  const timeBlob = new Blob([timeJsonString], { type: 'application/json' });
-  const timeUrl = URL.createObjectURL(timeBlob);
-  const timeLink = document.createElement('a');
-  timeLink.href = timeUrl;
-  timeLink.download = `${baseFilename}_time_deltas.json`;
-  document.body.appendChild(timeLink);
-  timeLink.click();
-  document.body.removeChild(timeLink);
-  URL.revokeObjectURL(timeUrl);
-  
-  // Export distance deltas to JSON file
-  const distanceExportPayload = {
+  const jsonString = JSON.stringify(exportPayload, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Exports distance deltas to JSON file
+ * @param {Array<number>} distanceDeltasM - Array of distance deltas in meters
+ * @param {string} filename - Filename for download
+ */
+function exportDistanceDeltasJSON(distanceDeltasM, filename) {
+  const exportPayload = {
     deltas: distanceDeltasM,
     count: distanceDeltasM.length
   };
   
-  const distanceJsonString = JSON.stringify(distanceExportPayload, null, 2);
-  const distanceBlob = new Blob([distanceJsonString], { type: 'application/json' });
-  const distanceUrl = URL.createObjectURL(distanceBlob);
-  const distanceLink = document.createElement('a');
-  distanceLink.href = distanceUrl;
-  distanceLink.download = `${baseFilename}_distance_deltas.json`;
-  document.body.appendChild(distanceLink);
-  distanceLink.click();
-  document.body.removeChild(distanceLink);
-  URL.revokeObjectURL(distanceUrl);
+  const jsonString = JSON.stringify(exportPayload, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+/**
+ * Exports time-distance pairs to JSON file
+ * @param {Array<{dtSec: number, ddMeters: number}>} timeDistancePairs - Array of time-distance pairs
+ * @param {string} filename - Filename for download
+ */
+function exportTimeDistancePairsJSON(timeDistancePairs, filename) {
+  const exportPayload = {
+    pairs: timeDistancePairs,
+    count: timeDistancePairs.length
+  };
   
-  // Export joint time-distance pairs to JSON file (only if valid timestamps exist)
-  if (hasValidTimestamps) {
-    const timeDistanceExportPayload = {
-      pairs: timeDistancePairs,
-      count: timeDistancePairs.length
-    };
-    
-    const timeDistanceJsonString = JSON.stringify(timeDistanceExportPayload, null, 2);
-    const timeDistanceBlob = new Blob([timeDistanceJsonString], { type: 'application/json' });
-    const timeDistanceUrl = URL.createObjectURL(timeDistanceBlob);
-    const timeDistanceLink = document.createElement('a');
-    timeDistanceLink.href = timeDistanceUrl;
-    timeDistanceLink.download = `${baseFilename}_time_distance_pairs.json`;
-    document.body.appendChild(timeDistanceLink);
-    timeDistanceLink.click();
-    document.body.removeChild(timeDistanceLink);
-    URL.revokeObjectURL(timeDistanceUrl);
-  }
-  
-  return result;
+  const jsonString = JSON.stringify(exportPayload, null, 2);
+  const blob = new Blob([jsonString], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
 }
