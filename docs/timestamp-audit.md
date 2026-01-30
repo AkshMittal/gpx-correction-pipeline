@@ -30,9 +30,36 @@ Audits timestamps in an array of points and returns metadata about timestamp qua
   - `backwardTimestampCount` (number): Points with timestamps less than the previous valid timestamp
   - `strictlyIncreasingCount` (number): Points with timestamps greater than the previous valid timestamp (correct order)
   - `maxBackwardJumpMs` (number|null): Maximum observed backward time delta in milliseconds, or `null` if no backward jumps
+  - `backwardTimestampEvents` (Array): Array of backward timestamp transition events, each containing:
+    - `index` (number): Index of the current point with backward timestamp
+    - `prevIndex` (number): Index of the previous point
+    - `prevTime` (string): Formatted time string of previous timestamp (HH:MM:SS)
+    - `currTime` (string): Formatted time string of current timestamp (HH:MM:SS)
+  - `duplicateTimestampEvents` (Array): Array of duplicate timestamp events, each containing:
+    - `index` (number): Index of the current point with duplicate timestamp
+    - `prevIndex` (number): Index of the previous point
+    - `time` (string): Formatted time string of the duplicate timestamp (HH:MM:SS)
 
 **Side Effects:**
 - Logs audit results to console with detailed breakdown
+
+## Helper Functions
+
+### `formatTime(timeRaw)` (Internal)
+
+Formats a timestamp string for display in flagged events.
+
+**Parameters:**
+- `timeRaw` (string): Raw timestamp string
+
+**Returns:**
+- `string`: Formatted time string in `HH:MM:SS` format, or original string if unparsable
+
+**Behavior:**
+- Parses timestamp using `Date` constructor
+- Formats as `HH:MM:SS` with zero-padding
+- Returns original string if parsing fails
+- Returns empty string if input is null/undefined
 
 ## Audit Process
 

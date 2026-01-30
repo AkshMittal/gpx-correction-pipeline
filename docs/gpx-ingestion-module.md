@@ -24,6 +24,9 @@ Parses a GPX XML string and extracts all point types.
     - `totalPointsFound` (number): Total number of points found in the GPX file (before validation)
     - `pointsDiscarded` (number): Number of points discarded due to validation failures
     - `remainingPoints` (number): Number of valid points returned
+    - `rejectedCoordinates` (Array): Array of rejected coordinate events, each containing:
+      - `index` (number): Index of the rejected point
+      - `reason` (string): Rejection reason explaining why the point was discarded
 
 **Throws:**
 - `Error`: If XML parsing fails (malformed XML)
@@ -119,13 +122,15 @@ All points maintain a global sequential index across all types, preserving their
 
 ## Error Handling and Logging
 
-### First Rejected Point Logging
+### Rejected Coordinate Collection
 
-When a point is rejected, the module logs the first rejected point to the console with:
-- Raw data (pointType, index, lat, lon, ele, time)
-- Rejection reason (explanation of why it was rejected)
+When a point is rejected, the module:
+- Collects all rejected coordinate events in `stats.rejectedCoordinates` array
+- Logs the first rejected point to the console with:
+  - Raw data (pointType, index, lat, lon, ele, time)
+  - Rejection reason (explanation of why it was rejected)
 
-This helps diagnose data quality issues without overwhelming the console with duplicate errors.
+This helps diagnose data quality issues without overwhelming the console with duplicate errors, while preserving all rejection events for downstream flagged events display.
 
 ### Statistics Tracking
 

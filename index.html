@@ -220,6 +220,48 @@
         .pipeline-status:empty {
             display: none;
         }
+        .flagged-events {
+            margin: 20px 0;
+            padding: 15px;
+            background: #000000;
+            border: 1px solid #333333;
+            font-family: 'Courier New', Courier, monospace;
+            font-size: 13px;
+        }
+        .flagged-events h3 {
+            color: #ffffff;
+            font-weight: normal;
+            font-size: 14px;
+            margin-top: 0;
+            margin-bottom: 15px;
+        }
+        .flagged-dropdown {
+            margin-bottom: 10px;
+        }
+        .flagged-dropdown-header {
+            color: #ffffff;
+            cursor: pointer;
+            padding: 5px 0;
+            user-select: none;
+        }
+        .flagged-dropdown-header:hover {
+            color: #cccccc;
+        }
+        .flagged-dropdown-content {
+            max-height: 200px;
+            overflow-y: auto;
+            margin-left: 20px;
+            margin-top: 5px;
+            display: none;
+        }
+        .flagged-dropdown-content.expanded {
+            display: block;
+        }
+        .flagged-event-item {
+            color: #999999;
+            padding: 2px 0;
+            font-size: 12px;
+        }
     </style>
 </head>
 <body>
@@ -239,6 +281,8 @@
         <div id="output"></div>
         
         <pre id="pipeline-status" class="pipeline-status"></pre>
+        
+        <div id="flagged-events" class="flagged-events"></div>
         
         <div id="visualization-section">
             <div class="explanation-text">
@@ -349,12 +393,12 @@
                 const stats = result.stats;
                 
                 // Log the entire points array
-                console.log('Parsed GPX points:', points);
+                // console.log('Parsed GPX points:', points);
                 
                 // Log statistics
-                console.log('Total points found in GPX:', stats.totalPointsFound);
-                console.log('Points discarded:', stats.pointsDiscarded);
-                console.log('Remaining points:', stats.remainingPoints);
+                // console.log('Total points found in GPX:', stats.totalPointsFound);
+                // console.log('Points discarded:', stats.pointsDiscarded);
+                // console.log('Remaining points:', stats.remainingPoints);
                 
                 // Run timestamp audit
                 const auditMetadata = auditTimestamps(points);
@@ -397,15 +441,19 @@
                 document.getElementById('visualization-section').style.display = 'block';
                 
                 // Update output
-                output.textContent = `GPX file parsed successfully.\n\nStatistics:\n- Total points found: ${stats.totalPointsFound}\n- Points discarded: ${stats.pointsDiscarded}\n- Remaining points: ${stats.remainingPoints}\n\nCheck console for parsed points array and audit results.`;
+                output.textContent = `GPX file parsed successfully: ${file.name}\n`;
                 
                 // Pipeline status readout (same factual data as console, no interpretation)
                 updatePipelineStatus(stats, auditMetadata, samplingMetadata);
+                
+                // Render flagged events dropdowns
+                renderFlaggedEvents(stats, auditMetadata, samplingMetadata);
                 
             } catch (error) {
                 output.textContent = 'Error: ' + error.message;
                 console.error('GPX parsing error:', error);
                 document.getElementById('pipeline-status').textContent = '';
+                document.getElementById('flagged-events').innerHTML = '';
             }
         }
         
@@ -419,7 +467,7 @@
                 '',
                 '[ingestion]',
                 '  points_detected: ' + (s ? s.totalPointsFound : 0),
-                '  points_rejected: ' + (s ? s.pointsDiscarded : 0),
+                '  points_discarded: ' + (s ? s.pointsDiscarded : 0),
                 '',
                 '[timestamp audit]',
                 '  timestamps_present: ' + (m && m.hasValidTimestamps ? 'true' : 'false'),
@@ -457,6 +505,118 @@
                 '    non_positive_dt: ' + (m ? n(m.jointRejectedNonPositiveDt) : 0)
             ];
             document.getElementById('pipeline-status').textContent = lines.join('\n');
+        }
+        
+        function renderFlaggedEvents(stats, auditMetadata, samplingMetadata) {
+            const container = document.getElementById('flagged-events');
+            container.innerHTML = '';
+            
+            const s = stats;
+            const t = auditMetadata;
+            const m = samplingMetadata;
+            
+            // Always show section title
+            const title = document.createElement('h3');
+            title.textContent = 'flagged events';
+            container.appendChild(title);
+            
+            // Collect all flagged event types
+            const hasRejectedCoords = s && s.rejectedCoordinates && s.rejectedCoordinates.length > 0;
+            const hasBackwardTimestamps = t && t.backwardTimestampEvents && t.backwardTimestampEvents.length > 0;
+            const hasDuplicateTimestamps = t && t.duplicateTimestampEvents && t.duplicateTimestampEvents.length > 0;
+            const hasNonPositiveDeltas = m && m.nonPositiveTimeDeltaEvents && m.nonPositiveTimeDeltaEvents.length > 0;
+            
+            // If no flagged events, show message
+            if (!hasRejectedCoords && !hasBackwardTimestamps && !hasDuplicateTimestamps && !hasNonPositiveDeltas) {
+                const message = document.createElement('div');
+                message.className = 'flagged-event-item';
+                message.textContent = 'no flagged events';
+                container.appendChild(message);
+                return;
+            }
+            
+            // Rejected coordinates
+            if (hasRejectedCoords) {
+                const items = s.rejectedCoordinates.map(e => {
+                    let reason = e.reason;
+                    // Simplify rejection reason for display
+                    if (reason.includes('not parseable as numbers')) {
+                        reason = 'invalid latitude / longitude';
+                    } else if (reason.includes('out of valid range')) {
+                        reason = 'invalid latitude / longitude';
+                    }
+                    return `index ${e.index} : ${reason}`;
+                });
+                const dropdown = createFlaggedDropdown('rejected coordinates', s.rejectedCoordinates.length, items);
+                container.appendChild(dropdown);
+            }
+            
+            // Backward timestamp transitions
+            if (hasBackwardTimestamps) {
+                const dropdown = createFlaggedDropdown(
+                    'backward timestamp transitions',
+                    t.backwardTimestampEvents.length,
+                    t.backwardTimestampEvents.map(e => `index ${e.prevIndex} → ${e.index} : ${e.prevTime} → ${e.currTime}`)
+                );
+                container.appendChild(dropdown);
+            }
+            
+            // Duplicate consecutive timestamps
+            if (hasDuplicateTimestamps) {
+                const dropdown = createFlaggedDropdown(
+                    'duplicate consecutive timestamps',
+                    t.duplicateTimestampEvents.length,
+                    t.duplicateTimestampEvents.map(e => `index ${e.prevIndex} → ${e.index} : identical timestamp`)
+                );
+                container.appendChild(dropdown);
+            }
+            
+            // Non-positive time deltas
+            if (hasNonPositiveDeltas) {
+                const dropdown = createFlaggedDropdown(
+                    'non-positive time deltas',
+                    m.nonPositiveTimeDeltaEvents.length,
+                    m.nonPositiveTimeDeltaEvents.map(e => {
+                        const deltaSec = (e.delta / 1000).toFixed(2);
+                        return `index ${e.prevIndex} → ${e.index} : delta ${deltaSec}s`;
+                    })
+                );
+                container.appendChild(dropdown);
+            }
+        }
+        
+        function createFlaggedDropdown(label, count, items) {
+            const dropdown = document.createElement('div');
+            dropdown.className = 'flagged-dropdown';
+            
+            const header = document.createElement('div');
+            header.className = 'flagged-dropdown-header';
+            header.textContent = `▶ ${label} (${count})`;
+            
+            const content = document.createElement('div');
+            content.className = 'flagged-dropdown-content';
+            
+            items.forEach(item => {
+                const itemEl = document.createElement('div');
+                itemEl.className = 'flagged-event-item';
+                itemEl.textContent = item;
+                content.appendChild(itemEl);
+            });
+            
+            header.addEventListener('click', () => {
+                const isExpanded = content.classList.contains('expanded');
+                if (isExpanded) {
+                    content.classList.remove('expanded');
+                    header.textContent = `▶ ${label} (${count})`;
+                } else {
+                    content.classList.add('expanded');
+                    header.textContent = `▼ ${label} (${count})`;
+                }
+            });
+            
+            dropdown.appendChild(header);
+            dropdown.appendChild(content);
+            return dropdown;
         }
         
         // Download functions for audit data
@@ -515,9 +675,9 @@
         window.updateTimeKDE = updateTimeKDE;
         window.updateDistanceKDE = updateDistanceKDE;
         
-        console.log('GPX Ingestion Module loaded. Use parseGPX(gpxString) or parseGPXFile(file) in console.');
-        console.log('Timestamp Audit Module loaded. Use auditTimestamps(points) in console.');
-        console.log('Sampling Audit Module loaded. Use auditSampling(points) in console.');
+        // console.log('GPX Ingestion Module loaded. Use parseGPX(gpxString) or parseGPXFile(file) in console.');
+        // console.log('Timestamp Audit Module loaded. Use auditTimestamps(points) in console.');
+        // console.log('Sampling Audit Module loaded. Use auditSampling(points) in console.');
         
         // Render empty placeholder graphs on page load
         function renderPlaceholderGraphs() {

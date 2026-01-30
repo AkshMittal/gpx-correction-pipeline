@@ -110,6 +110,7 @@ function parseGPX(gpxString) {
   let totalPointsFound = 0;
   let pointsDiscarded = 0;
   let firstRejectionLogged = false;
+  const rejectedCoordinates = [];
   
   // Helper function to process a point and track rejections
   const processPoint = (pointElement, pointType) => {
@@ -120,10 +121,15 @@ function parseGPX(gpxString) {
       pointsDiscarded++;
       // Log the first rejected point
       if (!firstRejectionLogged) {
-        console.log('First rejected point:', result.rawData);
-        console.log('Rejection reason:', result.rejectionReason);
+        // console.log('First rejected point:', result.rawData);
+        // console.log('Rejection reason:', result.rejectionReason);
         firstRejectionLogged = true;
       }
+      // Collect all rejected coordinates for flagged events
+      rejectedCoordinates.push({
+        index: result.rawData.index,
+        reason: result.rejectionReason
+      });
     }
   };
   
@@ -154,7 +160,8 @@ function parseGPX(gpxString) {
     stats: {
       totalPointsFound: totalPointsFound,
       pointsDiscarded: pointsDiscarded,
-      remainingPoints: points.length
+      remainingPoints: points.length,
+      rejectedCoordinates: rejectedCoordinates
     }
   };
 }

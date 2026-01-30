@@ -36,8 +36,8 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
  */
 function auditSampling(points, gpxFilename) {
   // Global context logging
-  console.log('=== Sampling Audit - Global Context ===');
-  console.log('Total points received:', points.length);
+  // console.log('=== Sampling Audit - Global Context ===');
+  // console.log('Total points received:', points.length);
   
   const timeDeltasMs = [];
   const distanceDeltasMTimeConditioned = [];
@@ -61,8 +61,8 @@ function auditSampling(points, gpxFilename) {
     }
   }
   
-  console.log('Has valid timestamps (presence):', hasValidTimestamps);
-  console.log('========================================');
+  // console.log('Has valid timestamps (presence):', hasValidTimestamps);
+  // console.log('========================================');
   
   // Time delta audit counters
   let timestampedPointsCount = 0;
@@ -70,9 +70,14 @@ function auditSampling(points, gpxFilename) {
   let positiveTimeDeltasCollected = 0;
   let rejectedTimestampPairsDeltaLeqZero = 0;
   
+  // Collect flagged events
+  const nonPositiveTimeDeltaEvents = [];
+  
   // Distance delta audit counters (geometry-only mode)
   let consecutivePointPairsConsidered = 0;
   let rejectedDistanceInvalidOrZero = 0;
+  
+  let previousTimestampIndex = null;
   
   // Iterate through all points in order
   // Note: All points are assumed to have valid coordinates (validated during ingestion)
@@ -132,9 +137,15 @@ function auditSampling(points, gpxFilename) {
           }
         } else {
           rejectedTimestampPairsDeltaLeqZero++;
+          nonPositiveTimeDeltaEvents.push({
+            index: i,
+            prevIndex: previousTimestampIndex,
+            delta: delta
+          });
         }
       }
       previousTimestampMs = currentTimestampMs;
+      previousTimestampIndex = i;
     }
     
     // Update previous point (coordinates are already validated during ingestion)
@@ -142,31 +153,31 @@ function auditSampling(points, gpxFilename) {
   }
   
   if (hasValidTimestamps && !hasTimeProgression) {
-    console.log('Timestamps detected but show no positive progression; time-based analysis disabled.');
+    // console.log('Timestamps detected but show no positive progression; time-based analysis disabled.');
   }
   
   // Time delta audit summary
-  console.log('=== Time Delta Audit ===');
-  console.log('Timestamped points:', timestampedPointsCount);
-  console.log('Timestamped consecutive pairs:', consecutiveTimestampPairsCount);
-  console.log('Positive deltas collected:', positiveTimeDeltasCollected);
-  console.log('Rejected (delta <= 0):', rejectedTimestampPairsDeltaLeqZero);
-  console.log('========================');
+  // console.log('=== Time Delta Audit ===');
+  // console.log('Timestamped points:', timestampedPointsCount);
+  // console.log('Timestamped consecutive pairs:', consecutiveTimestampPairsCount);
+  // console.log('Positive deltas collected:', positiveTimeDeltasCollected);
+  // console.log('Rejected (delta <= 0):', rejectedTimestampPairsDeltaLeqZero);
+  // console.log('========================');
   
   // Primary distance series for charts/exports: time-conditioned when progression exists, else geometry-only
   const distanceDeltasM = hasTimeProgression ? distanceDeltasMTimeConditioned : distanceDeltasMGeometryOnly;
   
   // Distance delta audit summary
   if (hasTimeProgression) {
-    console.log('=== Distance Delta Audit (time-conditioned) ===');
-    console.log('Distance deltas collected:', distanceDeltasMTimeConditioned.length);
-    console.log('===============================================');
+    // console.log('=== Distance Delta Audit (time-conditioned) ===');
+    // console.log('Distance deltas collected:', distanceDeltasMTimeConditioned.length);
+    // console.log('===============================================');
   } else {
-    console.log('=== Distance Delta Audit (geometry-only) ===');
-    console.log('Consecutive point pairs considered:', consecutivePointPairsConsidered);
-    console.log('Distance deltas collected:', distanceDeltasMGeometryOnly.length);
-    console.log('Rejected (invalid or zero distance):', rejectedDistanceInvalidOrZero);
-    console.log('============================================');
+    // console.log('=== Distance Delta Audit (geometry-only) ===');
+    // console.log('Consecutive point pairs considered:', consecutivePointPairsConsidered);
+    // console.log('Distance deltas collected:', distanceDeltasMGeometryOnly.length);
+    // console.log('Rejected (invalid or zero distance):', rejectedDistanceInvalidOrZero);
+    // console.log('============================================');
   }
   
   // Calculate statistics
@@ -209,20 +220,20 @@ function auditSampling(points, gpxFilename) {
   };
   
   // Console log the audit results
-  console.log('=== Sampling Audit Results ===');
-  console.log('Total positive deltas collected:', totalDeltaCount);
-  if (totalDeltaCount > 0) {
-    console.log('Minimum delta (ms):', minDeltaMs);
-    console.log('Maximum delta (ms):', maxDeltaMs);
-    console.log('Median delta (ms):', medianDeltaMs);
-    console.log('Minimum delta (seconds):', Math.round(minDeltaMs / 1000));
-    console.log('Maximum delta (seconds):', Math.round(maxDeltaMs / 1000));
-    console.log('Median delta (seconds):', Math.round(medianDeltaMs / 1000));
-  } else {
-    console.log('No positive deltas found (insufficient valid consecutive timestamps)');
-  }
-  console.log('Total distance deltas collected:', distanceDeltasM.length);
-  console.log('================================');
+  // console.log('=== Sampling Audit Results ===');
+  // console.log('Total positive deltas collected:', totalDeltaCount);
+  // if (totalDeltaCount > 0) {
+  //   console.log('Minimum delta (ms):', minDeltaMs);
+  //   console.log('Maximum delta (ms):', maxDeltaMs);
+  //   console.log('Median delta (ms):', medianDeltaMs);
+  //   console.log('Minimum delta (seconds):', Math.round(minDeltaMs / 1000));
+  //   console.log('Maximum delta (seconds):', Math.round(maxDeltaMs / 1000));
+  //   console.log('Median delta (seconds):', Math.round(medianDeltaMs / 1000));
+  // } else {
+  //   console.log('No positive deltas found (insufficient valid consecutive timestamps)');
+  // }
+  // console.log('Total distance deltas collected:', distanceDeltasM.length);
+  // console.log('================================');
   
   // Separate pass: Joint time-distance audit artifact
   // Only generate when timestamps show positive progression (hasTimeProgression)
@@ -302,15 +313,15 @@ function auditSampling(points, gpxFilename) {
     }
     
     // Joint time-distance audit summary
-    console.log('=== Joint Time-Distance Audit ===');
-    console.log('Consecutive pairs inspected:', jointConsecutivePairsInspected);
-    console.log('Pairs with both timestamps:', jointPairsWithBothTimestamps);
-    console.log('Valid joint pairs collected:', jointValidPairsCollected);
-    console.log('Rejected:');
-    console.log('  - Missing timestamp:', jointRejectedMissingTimestamp);
-    console.log('  - Non-positive Δt:', jointRejectedNonPositiveDt);
-    console.log('  - Invalid/zero distance:', jointRejectedInvalidOrZeroDistance);
-    console.log('================================');
+    // console.log('=== Joint Time-Distance Audit ===');
+    // console.log('Consecutive pairs inspected:', jointConsecutivePairsInspected);
+    // console.log('Pairs with both timestamps:', jointPairsWithBothTimestamps);
+    // console.log('Valid joint pairs collected:', jointValidPairsCollected);
+    // console.log('Rejected:');
+    // console.log('  - Missing timestamp:', jointRejectedMissingTimestamp);
+    // console.log('  - Non-positive Δt:', jointRejectedNonPositiveDt);
+    // console.log('  - Invalid/zero distance:', jointRejectedInvalidOrZeroDistance);
+    // console.log('================================');
   }
   
   // Expose counters for pipeline status display (same values used for console logging)
@@ -321,6 +332,7 @@ function auditSampling(points, gpxFilename) {
   result.jointRejectedMissingTimestamp = jointRejectedMissingTimestamp;
   result.jointRejectedNonPositiveDt = jointRejectedNonPositiveDt;
   result.jointRejectedInvalidOrZeroDistance = jointRejectedInvalidOrZeroDistance;
+  result.nonPositiveTimeDeltaEvents = nonPositiveTimeDeltaEvents;
   
   return result;
 }

@@ -19,7 +19,24 @@ function auditTimestamps(points) {
   let strictlyIncreasingCount = 0; // Points in increasing order
   let maxBackwardJumpMs = null; // null if no backward jumps observed
   
+  // Collect flagged events
+  const backwardTimestampEvents = [];
+  const duplicateTimestampEvents = [];
+  
   let lastValidTimestampMs = null;
+  let lastValidTimestampIndex = null;
+  let lastValidTimestampRaw = null;
+  
+  // Helper to format time for display
+  const formatTime = (timeRaw) => {
+    if (!timeRaw) return '';
+    const d = new Date(timeRaw);
+    if (isNaN(d.getTime())) return timeRaw;
+    const hours = String(d.getHours()).padStart(2, '0');
+    const minutes = String(d.getMinutes()).padStart(2, '0');
+    const seconds = String(d.getSeconds()).padStart(2, '0');
+    return `${hours}:${minutes}:${seconds}`;
+  };
   
   // Iterate through all points
   for (let i = 0; i < points.length; i++) {
@@ -47,6 +64,11 @@ function auditTimestamps(points) {
       // Check for duplicate timestamp (equal to last)
       if (timestampMs === lastValidTimestampMs) {
         duplicateTimestampCount++;
+        duplicateTimestampEvents.push({
+          index: i,
+          prevIndex: lastValidTimestampIndex,
+          time: formatTime(timeRaw)
+        });
       }
       // Check for backward timestamp (less than last)
       else if (timestampMs < lastValidTimestampMs) {
@@ -57,6 +79,13 @@ function auditTimestamps(points) {
         if (maxBackwardJumpMs === null || backwardJump > maxBackwardJumpMs) {
           maxBackwardJumpMs = backwardJump;
         }
+        
+        backwardTimestampEvents.push({
+          index: i,
+          prevIndex: lastValidTimestampIndex,
+          prevTime: formatTime(lastValidTimestampRaw),
+          currTime: formatTime(timeRaw)
+        });
       }
       // Check for strictly increasing timestamp (greater than last - correct order)
       else if (timestampMs > lastValidTimestampMs) {
@@ -66,6 +95,8 @@ function auditTimestamps(points) {
     
     // Update last valid timestamp for next comparison
     lastValidTimestampMs = timestampMs;
+    lastValidTimestampIndex = i;
+    lastValidTimestampRaw = timeRaw;
   }
   
   // Build audit metadata object
@@ -76,24 +107,26 @@ function auditTimestamps(points) {
     duplicateTimestampCount: duplicateTimestampCount,
     backwardTimestampCount: backwardTimestampCount,
     strictlyIncreasingCount: strictlyIncreasingCount,
-    maxBackwardJumpMs: maxBackwardJumpMs
+    maxBackwardJumpMs: maxBackwardJumpMs,
+    backwardTimestampEvents: backwardTimestampEvents,
+    duplicateTimestampEvents: duplicateTimestampEvents
   };
   
   // Console log the audit results
-  console.log('=== Timestamp Audit Results ===');
-  console.log('Total points checked:', totalPointsChecked);
-  console.log('Missing timestamps:', missingTimestampCount);
-  console.log('Unparsable timestamps:', unparsableTimestampCount);
-  console.log('Duplicate timestamps:', duplicateTimestampCount);
-  console.log('Backward timestamps:', backwardTimestampCount);
-  console.log('Strictly increasing timestamps:', strictlyIncreasingCount);
-  if (maxBackwardJumpMs !== null) {
-    console.log('Maximum backward jump (ms):', maxBackwardJumpMs);
-    console.log('Maximum backward jump (seconds):', Math.round(maxBackwardJumpMs / 1000));
-  } else {
-    console.log('Maximum backward jump (ms):', 'N/A (no backward jumps observed)');
-  }
-  console.log('================================');
+  // console.log('=== Timestamp Audit Results ===');
+  // console.log('Total points checked:', totalPointsChecked);
+  // console.log('Missing timestamps:', missingTimestampCount);
+  // console.log('Unparsable timestamps:', unparsableTimestampCount);
+  // console.log('Duplicate timestamps:', duplicateTimestampCount);
+  // console.log('Backward timestamps:', backwardTimestampCount);
+  // console.log('Strictly increasing timestamps:', strictlyIncreasingCount);
+  // if (maxBackwardJumpMs !== null) {
+  //   console.log('Maximum backward jump (ms):', maxBackwardJumpMs);
+  //   console.log('Maximum backward jump (seconds):', Math.round(maxBackwardJumpMs / 1000));
+  // } else {
+  //   console.log('Maximum backward jump (ms):', 'N/A (no backward jumps observed)');
+  // }
+  // console.log('================================');
   
   return auditMetadata;
 }
